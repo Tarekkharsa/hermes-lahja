@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lahja banner</title>
+<style>
+  :root {
+    --bg: #0f1412; --panel: #18201c; --line: #2a3530; --ink: #eef3ef; --muted: #9db0a5;
+    --bad: #ff8a7a; --good: #7fe0a8; --accent: #e9c46a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1200px; height: 600px; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif; overflow: hidden; }
+  .ar { font-family: "SF Arabic", "Geeza Pro", "Noto Naskh Arabic", serif; direction: rtl; unicode-bidi: isolate; }
+  .wrap { padding: 40px 56px; height: 100%; display: flex; flex-direction: column; gap: 24px; }
+  header { display: flex; align-items: baseline; gap: 22px; }
+  h1 { font-size: 56px; font-weight: 800; letter-spacing: -1.5px; }
+  h1 .ar { font-size: 52px; color: var(--accent); font-weight: 700; margin-left: 14px; }
+  .tag { color: var(--muted); font-size: 22px; margin-top: 6px; }
+  .grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 26px; flex: 1; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px 24px; }
+  .label { font-size: 14px; letter-spacing: 1.6px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .row { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 14px; margin-bottom: 10px; }
+  .who { font-size: 20px; color: var(--muted); }
+  .out { font-size: 28px; }
+  .out.bad { color: var(--bad); }
+  .out.good { color: var(--good); font-size: 22px; font-style: italic; }
+  .gloss { font-size: 16px; color: var(--muted); margin-top: 4px; }
+  .bars { display: flex; flex-direction: column; gap: 18px; }
+  .bar { display: grid; grid-template-columns: 150px 1fr 70px; align-items: center; gap: 12px; }
+  .track { height: 26px; background: #0b0f0d; border-radius: 6px; overflow: hidden; }
+  .fill { height: 100%; border-radius: 6px; }
+  .num { font-size: 26px; font-weight: 700; text-align: right; }
+  .foot { display: flex; gap: 22px; color: var(--muted); font-size: 19px; }
+  .foot b { color: var(--ink); font-weight: 600; }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Lahja <span class="ar">لهجة</span></h1>
+      <div class="tag">Arabic dialect speech-to-text for Hermes Agent: local, private, and it keeps your dialect.</div>
+    </div>
+  </header>
+  <div class="grid">
+    <div class="card">
+      <div class="label">10 seconds of silence</div>
+      <div class="row">
+        <div class="who">Stock Whisper</div>
+        <div><div class="out bad ar">ترجمة نانسي قنقر</div><div class="gloss">“Translation by Nancy Qunqar”, 4 of 4 times</div></div>
+      </div>
+      <div class="row">
+        <div class="who">Lahja</div>
+        <div><div class="out good">nothing, on 4 of 4</div></div>
+      </div>
+      <div class="label" style="margin-top:16px">Your dialect, kept</div>
+      <div class="row">
+        <div class="who">Stock Whisper</div>
+        <div class="out bad ar">ولكن مع ذلك</div>
+      </div>
+      <div class="row" style="margin-bottom:0">
+        <div class="who">Lahja</div>
+        <div class="out ar" style="color:var(--good)">بس مع هيك</div>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="card">
+        <div class="label">Word error rate · 13 dialects</div>
+        <div class="bars">
+          <div class="bar"><div class="who">Stock turbo</div><div class="track"><div class="fill" style="width:85.8%;background:var(--bad)"></div></div><div class="num">43%</div></div>
+          <div class="bar"><div class="who">Lahja</div><div class="track"><div class="fill" style="width:58.2%;background:var(--good)"></div></div><div class="num">29%</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">Also</div>
+        <div class="foot" style="flex-direction:column;gap:8px">
+          <div><b>English stays English</b>, accent or not</div>
+          <div><b>/stt-fix</b>: teach a word once</div>
+          <div><b>No audio or transcripts kept</b>, fully local</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

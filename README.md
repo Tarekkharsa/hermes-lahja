@@ -1,5 +1,7 @@
 # Lahja (لهجة) — Arabic dialect speech-to-text for Hermes
 
+![Lahja: stock Whisper writes «ترجمة نانسي قنقر» on silence and rewrites dialect as formal Arabic; Lahja returns nothing on silence, keeps the dialect, and cuts word errors from 43% to 29% across 13 dialects](docs/banner.png)
+
 Send Hermes a voice note in Levantine, Gulf, Egyptian, Iraqi or Maghrebi Arabic and get back **what you
 actually said**: in your dialect, not rewritten as formal Arabic, not translated, and never the
 Whisper classic «ترجمة نانسي قنقر» ("Translation by Nancy Qunqar") when the audio is silent.

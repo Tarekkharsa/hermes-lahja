@@ -77,8 +77,12 @@ class LahjaProvider(TranscriptionProvider):
         return self._ctx.state.data_dir
 
     def _model(self, override: Optional[str]) -> models.ModelFile:
-        mid = (override or self._cfg("stt_model", models.DEFAULT_MODEL) or models.DEFAULT_MODEL).strip()
-        return models.MODELS.get(mid) or models.MODELS[models.DEFAULT_MODEL]
+        mid = str(override or self._cfg("stt_model", models.DEFAULT_MODEL) or models.DEFAULT_MODEL).strip()
+        m = models.MODELS.get(mid)
+        if m is None:
+            logger.warning("lahja: unknown stt_model %r, using %s", mid, models.DEFAULT_MODEL)
+            m = models.MODELS[models.DEFAULT_MODEL]
+        return m
 
     def _language(self, hint: Optional[str]) -> str:
         """``"ar"`` or ``"auto"`` — never another language.
@@ -134,7 +138,11 @@ class LahjaProvider(TranscriptionProvider):
                 vad_path = None
             lang = self._language(language)
             prompt = extra.get("prompt") if isinstance(extra.get("prompt"), str) else ""
-            other_path, other_id = self._other_model()
+            try:
+                other_path, other_id = self._other_model()
+            except engine.EngineError as exc:  # an optional setting must never break Arabic notes
+                logger.warning("lahja: ignoring other_languages_model: %s", exc)
+                other_path, other_id = None, ""
             primary = engine.DecodeOptions(
                 model_path=models.path_for(data_dir, m),
                 language=lang,
@@ -142,7 +150,10 @@ class LahjaProvider(TranscriptionProvider):
                 threads=_int(self._cfg("threads", 4), 4, 1, 32),
                 prompt=prompt[:400],
             )
-            out = engine.transcribe_routed(file_path, primary, other_path)
+            out = engine.transcribe_routed(
+                file_path, primary, other_path,
+                timeout_s=_int(self._cfg("timeout", 300), 300, 30, 3600),
+                max_parallel=_int(self._cfg("max_parallel", 1), 1, 1, 4))
         except engine.EngineError as exc:
             return self._error(f"lahja: {exc}")
         except Exception as exc:  # the ABC forbids raising
@@ -150,14 +161,17 @@ class LahjaProvider(TranscriptionProvider):
             return self._error(f"lahja: transcription failed: {exc}")
 
         raw = out.decoded.text
-        text, removed = raw, []
-        if _bool(self._cfg("hallucination_filter", True), True):
-            text, removed = filters.strip_hallucinations(raw)
+        text, removed, fixed = raw, [], 0
+        try:
+            if _bool(self._cfg("hallucination_filter", True), True):
+                text, removed = filters.strip_hallucinations(raw)
+        except Exception as exc:  # post-processing must never cost the user their transcript
+            logger.warning("lahja: hallucination filter skipped: %s", exc)
+            text, removed = raw, []
         try:
             text, fixed = corrections.apply(text, corrections.load(self._ctx.state))
         except Exception as exc:
             logger.warning("lahja: corrections skipped: %s", exc)
-            fixed = 0
         result: Dict[str, Any] = {
             "success": True, "transcript": text, "provider": PROVIDER_NAME,
             "model": other_id if out.routed else m.id, "vad": vad_path is not None,
@@ -167,6 +181,8 @@ class LahjaProvider(TranscriptionProvider):
         if out.routed:
             result["routed"] = "other_languages_model"
             result["route_reason"] = out.reason
+        elif out.reason:
+            result["route_note"] = out.reason
         if removed:
             result["hallucinations_removed"] = len(removed)
         if fixed:
@@ -176,7 +192,8 @@ class LahjaProvider(TranscriptionProvider):
 
 # -- /stt-fix ---------------------------------------------------------------------------------
 _HELP = (
-    "Teach Lahja a correction once; it applies to every later voice note.\n"
+    "Teach Lahja a correction once; it applies to every later voice note, in every chat of this\n"
+    "Hermes profile (anyone allowed to talk to this Hermes can add one).\n"
     "  /stt-fix جي إلي تي => JLT     add (also -> or →)\n"
     "  /stt-fix list                 show taught corrections\n"
     "  /stt-fix remove 2             delete correction #2\n"
@@ -195,25 +212,34 @@ def make_stt_fix(get_state):
     """``get_state`` is called per invocation: the profile-scoped state is resolved when the
     command runs, never at register() time."""
     def stt_fix(raw_args: str = "", **_: Any) -> str:
-        state = get_state()
-        arg = (raw_args or "").strip()
-        if not arg or arg in {"help", "-h", "--help"}:
-            return _HELP + "\n\n" + _format_list(corrections.load(state))
-        if arg in {"list", "ls"}:
-            return _format_list(corrections.load(state))
-        head, _, rest = arg.partition(" ")
-        if head in {"remove", "rm", "delete"}:
-            try:
-                gone = corrections.remove(state, int(rest.strip()))
-            except ValueError:
-                gone = None
-            return f"Removed: {gone.wrong} → {gone.right}" if gone else "No such correction. Try /stt-fix list."
-        rule = corrections.parse_rule(arg)
-        if rule is None:
-            return "Couldn't read that. Use: /stt-fix <what it wrote> => <what you said>\n\n" + _HELP
-        items = corrections.add(state, rule)
-        return f"Learned: {rule.wrong} → {rule.right} ({len(items)} total). Applies from the next voice note."
+        try:
+            return _stt_fix(get_state(), (raw_args or "").strip())
+        except Exception as exc:  # e.g. state quota or an unreadable state file
+            logger.warning("lahja: /stt-fix failed: %s", exc)
+            return f"Lahja couldn't update corrections: {exc}"
     return stt_fix
+
+
+def _stt_fix(state: Any, arg: str) -> str:
+    if not arg or arg in {"help", "-h", "--help"}:
+        return _HELP + "\n\n" + _format_list(corrections.load(state))
+    if arg in {"list", "ls"}:
+        return _format_list(corrections.load(state))
+    rule = corrections.parse_rule(arg)  # a rule wins: "/stt-fix remove => ريموف" teaches a word
+    head, _, rest = arg.partition(" ")
+    if rule is None and head in {"remove", "rm", "delete"}:
+        try:
+            gone = corrections.remove(state, int(rest.strip()))
+        except ValueError:
+            gone = None
+        return f"Removed: {gone.wrong} → {gone.right}" if gone else "No such correction. Try /stt-fix list."
+    if rule is None:
+        return "Couldn't read that. Use: /stt-fix <what it wrote> => <what you said>\n\n" + _HELP
+    try:
+        items = corrections.add(state, rule)
+    except corrections.CorrectionLimit as exc:
+        return str(exc)
+    return f"Learned: {rule.wrong} → {rule.right} ({len(items)} total). Applies from the next voice note."
 
 
 # -- `hermes lahja ...` -----------------------------------------------------------------------
@@ -281,7 +307,11 @@ def make_cli_handler(ctx: Any):
         else:
             print(f"other langs  {other_id} {'found' if other.is_file() else 'MISSING'}")
             ok &= other.is_file()
-        print(f"corrections  {len(corrections.load(ctx.state))}")
+        try:
+            print(f"corrections  {len(corrections.load(ctx.state))}")
+        except Exception as exc:
+            print(f"corrections  UNREADABLE: {exc}")
+            ok = False
         return 0 if ok else 1
     return handler
 

@@ -5,7 +5,7 @@ on:
 permissions:
   contents: read
 jobs:
-  test:
+  unit:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -17,3 +17,28 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m pip install "pytest>=8,<10"
       - run: python -m pytest -q tests
+
+  real-whisper:
+    # The same code paths with a real whisper.cpp (Metal) instead of mocks: language detection
+    # parsed from whisper-cli's log, Opus voice notes, VAD on silence/noise, no env leakage.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: brew install whisper-cpp ffmpeg
+      - name: Fetch pinned test assets
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          fetch() { curl -fsSL --retry 3 -o "assets/$1" "$2"; echo "$3  assets/$1" | shasum -a 256 -c -; }
+          fetch tiny.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny.bin be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21
+          fetch vad.bin https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v5.1.2.bin 29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf
+          fetch sample.wav https://huggingface.co/oddadmix/whisper-large-v3-turbo-arabic-dialectal-v2/resolve/b12b09bc6601f2116410ccc9716596de0301c24a/samples/5.wav a816d2e6ba5bb927206aadb18f2c48c7123127279c37ea9a5714390960665a93
+      - run: python -m pip install "pytest>=8,<10"
+      - run: python -m pytest -v tests/test_real_engine.py
+        env:
+          LAHJA_REAL_MODEL: assets/tiny.bin
+          LAHJA_REAL_VAD: assets/vad.bin
+          LAHJA_REAL_SAMPLE: assets/sample.wav

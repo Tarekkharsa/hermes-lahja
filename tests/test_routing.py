@@ -70,11 +70,11 @@ def test_forced_arabic_skips_detection(eng):
     assert (r.language, r.routed) == ("ar", False)
 
 
-def test_missing_other_model_is_an_error(eng, tmp_path):
+def test_missing_other_model_keeps_first_result(eng, tmp_path):
     engine, calls, script, dialect, _ = eng
     script[("dialect.bin", "auto")] = engine.Decoded("hello", "en", 0.99)
-    with pytest.raises(engine.EngineError, match="other-languages model missing"):
-        engine.transcribe_routed("/a.ogg", engine.DecodeOptions(dialect, "auto"), tmp_path / "nope.bin")
+    r = engine.transcribe_routed("/a.ogg", engine.DecodeOptions(dialect, "auto"), tmp_path / "nope.bin")
+    assert (r.decoded.text, r.routed, r.reason) == ("hello", False, "other_model_missing")
 
 
 def test_detected_language_is_parsed_from_log(lahja):
@@ -105,7 +105,7 @@ def test_provider_reports_routing(lahja, tmp_path, monkeypatch):
     import hermes_plugins.lahja.models as models
     c = FakeCtx(tmp_path, {"other_languages_model": "turbo-stock-q5"})
     for m in (models.VAD_MODEL, models.MODELS[models.DEFAULT_MODEL]):
-        models.path_for(tmp_path, m).write_bytes(b"x")
+        models.models_dir(tmp_path); models.path_for(tmp_path, m).write_bytes(b"x")
     seen = {}
 
     def fake(src, opts, other, **k):
@@ -145,7 +145,7 @@ def test_english_hint_with_arabic_speech_stays_arabic(lahja, tmp_path, monkeypat
     import hermes_plugins.lahja.models as models
     c = FakeCtx(tmp_path, {"other_languages_model": "turbo-stock-q5"})
     for m in (models.VAD_MODEL, models.MODELS[models.DEFAULT_MODEL], models.MODELS["turbo-stock-q5"]):
-        models.path_for(tmp_path, m).write_bytes(b"x")
+        models.models_dir(tmp_path); models.path_for(tmp_path, m).write_bytes(b"x")
     calls = []
 
     def fake_decode(wav, work, opts, cli=None):

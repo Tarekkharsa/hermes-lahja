@@ -9,14 +9,19 @@ outlives the transcription.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 _SEARCH_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
@@ -39,10 +44,44 @@ def ffmpeg() -> Optional[str]:
 
 def _env() -> dict[str, str]:
     env = {"PATH": _SEARCH_PATH, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
-    tmp = os.environ.get("TMPDIR")
-    if tmp:
-        env["TMPDIR"] = tmp
+    for key in ("TMPDIR", "LD_LIBRARY_PATH"):  # temp dir; shared libs of a custom (e.g. CUDA) whisper.cpp build
+        val = os.environ.get(key)
+        if val:
+            env[key] = val
     return env
+
+
+# Each whisper-cli process loads a ~0.6–3 GB model. The gateway transcribes voice notes on worker
+# threads, so N notes arriving together would start N processes at once; queue them instead.
+_SLOTS_LOCK = threading.Lock()
+_SLOTS: Optional[threading.BoundedSemaphore] = None
+_SLOTS_N = 0
+
+
+def _slots(n: int) -> threading.BoundedSemaphore:
+    global _SLOTS, _SLOTS_N
+    n = max(1, int(n))
+    with _SLOTS_LOCK:
+        if _SLOTS is None or _SLOTS_N != n:
+            _SLOTS, _SLOTS_N = threading.BoundedSemaphore(n), n
+        return _SLOTS
+
+
+class Deadline:
+    """One budget for the whole voice note: queueing, conversion and every decode pass share it,
+    so an unattended run (gateway, cron) can never hang longer than ``timeout_s``."""
+
+    def __init__(self, seconds: float):
+        self.end = time.monotonic() + max(1.0, float(seconds))
+
+    def left(self) -> float:
+        return self.end - time.monotonic()
+
+    def budget(self) -> int:
+        left = self.left()
+        if left <= 0.5:
+            raise EngineError("timed out (raise plugins.entries.lahja.settings.timeout for very long notes)")
+        return max(1, int(left))
 
 
 _DETECTED_RE = re.compile(r"auto-detected language:\s*([a-z]{2,3})\s*\(p\s*=\s*([0-9.]+)\)")
@@ -82,8 +121,9 @@ def to_wav(src: str, work_dir: str, timeout_s: int = 120) -> str:
     if not ff:
         raise EngineError("ffmpeg not found (brew install ffmpeg)")
     dst = os.path.join(work_dir, "audio.wav")
-    proc = _run([ff, "-nostdin", "-v", "error", "-y", "-i", src, "-ar", "16000", "-ac", "1",
-                 "-c:a", "pcm_s16le", dst], timeout_s)
+    # -protocol_whitelist: a renamed playlist/concat file can't make ffmpeg fetch URLs or other files.
+    proc = _run([ff, "-nostdin", "-v", "error", "-y", "-protocol_whitelist", "file,pipe",
+                 "-i", src, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", dst], timeout_s)
     if proc.returncode != 0 or not os.path.isfile(dst):
         raise EngineError("ffmpeg could not decode the audio: "
                           + proc.stderr.decode("utf-8", "replace").strip()[-300:])
@@ -144,7 +184,8 @@ class Routed:
 
 
 def transcribe_routed(src: str, primary: DecodeOptions, other_model: Optional[Path],
-                      min_probability: float = 0.5) -> Routed:
+                      min_probability: float = 0.5, *, timeout_s: float = 300,
+                      max_parallel: int = 1) -> Routed:
     """Arabic → dialect model; anything else → ``other_model`` (stock Whisper).
 
     One ffmpeg conversion. The dialect model runs first with ``language="auto"``, so Arabic — the
@@ -153,10 +194,12 @@ def transcribe_routed(src: str, primary: DecodeOptions, other_model: Optional[Pa
 
     * Whisper detected another language with confidence >= ``min_probability`` (decoded in that
       language), or
-    * Whisper said "Arabic" but the text is English written in Arabic letters — accented English
-      is routinely detected as Arabic — (decoded as English; see :mod:`translit`).
+    * Whisper said "Arabic" but the text is *mostly* English written in Arabic letters — accented
+      English is routinely detected as Arabic — (decoded as English; see :mod:`translit`).
 
-    Without ``other_model`` the dialect model's own output is kept.
+    The second pass is best-effort: if ``other_model`` is missing or fails, the first result is
+    returned (``reason`` says why). At most ``max_parallel`` notes decode at once; the whole call,
+    queueing included, is bounded by ``timeout_s``.
     """
     from . import translit
 
@@ -165,22 +208,41 @@ def transcribe_routed(src: str, primary: DecodeOptions, other_model: Optional[Pa
         raise EngineError("whisper-cli not found (brew install whisper-cpp)")
     if not primary.model_path.is_file():
         raise EngineError(f"model file missing: {primary.model_path.name} (run `hermes lahja setup`)")
-    with tempfile.TemporaryDirectory(prefix="lahja-") as work:
-        wav = to_wav(src, work)
-        first = decode_wav(wav, work, primary, cli)
-        auto = primary.language == "auto"
-        lang = first.language if auto else primary.language
-        target, reason = None, ""
-        if auto and first.text:
-            if first.language not in (None, ARABIC) and (first.probability or 0.0) >= min_probability:
-                target, reason = first.language, "detected"
-            elif translit.looks_like_transliterated_english(first.text):
-                target, reason = "en", "transliterated"
-        if target is None or other_model is None:
-            return Routed(first, lang, False)
-        if not other_model.is_file():
-            raise EngineError(f"other-languages model missing: {other_model}")
-        second = decode_wav(wav, work, DecodeOptions(
-            model_path=other_model, language=target, vad_model_path=primary.vad_model_path,
-            threads=primary.threads, prompt=primary.prompt, timeout_s=primary.timeout_s), cli)
-        return Routed(second, target, True, reason)
+    deadline = Deadline(timeout_s)
+    slots = _slots(max_parallel)
+    if not slots.acquire(timeout=max(0.0, deadline.left())):
+        raise EngineError("timed out waiting for another transcription to finish")
+    try:
+        with tempfile.TemporaryDirectory(prefix="lahja-") as work:
+            wav = to_wav(src, work, timeout_s=deadline.budget())
+            first = decode_wav(wav, work, _with_timeout(primary, deadline.budget()), cli)
+            auto = primary.language == "auto"
+            lang = first.language if auto else primary.language
+            target, reason = None, ""
+            if auto and first.text:
+                if first.language not in (None, ARABIC) and (first.probability or 0.0) >= min_probability:
+                    target, reason = first.language, "detected"
+                elif translit.looks_like_transliterated_english(first.text):
+                    target, reason = "en", "transliterated"
+            if target is None or other_model is None:
+                return Routed(first, lang, False)
+            if not other_model.is_file():
+                logger.warning("lahja: other_languages_model not found (%s); keeping the dialect model's text",
+                               other_model)
+                return Routed(first, lang, False, "other_model_missing")
+            try:
+                second = decode_wav(wav, work, DecodeOptions(
+                    model_path=other_model, language=target, vad_model_path=primary.vad_model_path,
+                    threads=primary.threads, prompt=primary.prompt, timeout_s=deadline.budget()), cli)
+            except EngineError as exc:
+                logger.warning("lahja: second pass failed (%s); keeping the dialect model's text", exc)
+                return Routed(first, lang, False, "second_pass_failed")
+            return Routed(second, target, True, reason)
+    finally:
+        slots.release()
+
+
+def _with_timeout(opts: DecodeOptions, seconds: int) -> DecodeOptions:
+    return DecodeOptions(model_path=opts.model_path, language=opts.language,
+                         vad_model_path=opts.vad_model_path, threads=opts.threads,
+                         prompt=opts.prompt, timeout_s=seconds)

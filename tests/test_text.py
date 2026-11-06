@@ -35,7 +35,7 @@ def test_trailing_credit_is_stripped_but_speech_kept(filters):
 
 
 def test_leading_and_trailing_credits(filters):
-    out, _ = filters.strip_hallucinations("موسيقى وين صرت؟ اشتركوا في القناة")
+    out, _ = filters.strip_hallucinations("ترجمة نانسي قنقر وين صرت؟ تمت الترجمة بواسطة")
     assert out == "وين صرت؟"
 
 

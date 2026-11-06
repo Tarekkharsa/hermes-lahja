@@ -23,3 +23,12 @@ def test_every_config_key_read_by_code_is_declared():
     code = "".join(p.read_text(encoding="utf-8") for p in MANIFEST.parent.glob("*.py"))
     read = set(re.findall(r'(?:_cfg|get_config)\("([A-Za-z0-9_.-]+)"', code))
     assert read <= set(_schema_keys()), read - set(_schema_keys())
+
+
+def test_no_invisible_characters_in_plugin_source():
+    """The catalog's install scanner flags invisible/bidi characters (caution). Build them with chr()."""
+    import unicodedata
+    for p in MANIFEST.parent.glob("*.py"):
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            bad = [hex(ord(ch)) for ch in line if unicodedata.category(ch) == "Cf"]
+            assert not bad, f"{p.name}:{n} has invisible characters {bad}"

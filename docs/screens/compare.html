@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lahja vs stock Whisper</title>
+<style>
+  :root { --bg:#0f1412; --panel:#18201c; --line:#2a3530; --ink:#eef3ef; --muted:#9db0a5; --bad:#ff8a7a; --good:#7fe0a8; --accent:#e9c46a; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { width:1400px; height:720px; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,"SF Pro Text","Helvetica Neue",Arial,sans-serif; overflow:hidden; }
+  .ar { font-family:"SF Arabic","Geeza Pro","Noto Naskh Arabic",serif; direction:rtl; unicode-bidi:isolate; text-align:right; }
+  .wrap { padding:44px 56px; display:flex; flex-direction:column; gap:22px; height:100%; }
+  h2 { font-size:30px; font-weight:700; }
+  h2 span { color:var(--muted); font-weight:400; font-size:22px; margin-left:10px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:22px 26px; }
+  .head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px; }
+  .dialect { font-size:15px; letter-spacing:1.5px; text-transform:uppercase; color:var(--accent); }
+  .src { font-size:14px; color:var(--muted); }
+  .row { display:grid; grid-template-columns:170px 1fr; gap:16px; align-items:center; padding:8px 0; border-top:1px solid var(--line); }
+  .row:first-of-type { border-top:none; }
+  .who { font-size:17px; color:var(--muted); }
+  .txt { font-size:27px; line-height:1.5; }
+  .bad { color:var(--bad); } .good { color:var(--good); } .ref { color:var(--ink); opacity:.85; }
+  .gloss { font-size:16px; color:var(--muted); font-style:italic; margin-top:2px; direction:ltr; unicode-bidi:isolate; }
+  mark { background:rgba(255,138,122,.18); color:var(--bad); border-radius:4px; padding:0 3px; }
+  mark.g { background:rgba(127,224,168,.16); color:var(--good); }
+  .foot { color:var(--muted); font-size:15px; margin-top:auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Same audio, same settings <span>stock Whisper large-v3-turbo vs Lahja · whisper.cpp q5_0 · Silero VAD · language ar</span></h2>
+
+  <div class="card">
+    <div class="head"><div class="dialect">Iraqi</div><div class="src">model-card test clip 5 · bench/run_bench.py</div></div>
+    <div class="row"><div class="who">Reference</div><div class="txt ar ref">اشتروا كونتينر او نگدر نگول كرفان حديد، واخذوه بمنطقة بعيدة جدا</div></div>
+    <div class="row"><div class="who">Stock Whisper</div><div class="txt ar bad">اشتروا كونتينر او <mark>نقدر نقول</mark> <mark>كارفان</mark> حديد واخذوه بمنطقة بعيدة جدا</div></div>
+    <div class="row"><div class="who">Lahja</div><div><div class="txt ar good">اشتروا كونتينر أو <mark class="g">نگدر نگول</mark> كرفان حديد وأخذوه بمنطقة بعيدة جدا</div><div class="gloss" style="text-align:right">the Iraqi letter <span class="ar" style="font-style:normal">گ</span> is kept; stock rewrites it as the standard <span class="ar" style="font-style:normal">ق</span></div></div></div>
+  </div>
+
+  <div class="card">
+    <div class="head"><div class="dialect">Egyptian</div><div class="src">model-card test clip 1 · bench/run_bench.py</div></div>
+    <div class="row"><div class="who">Reference</div><div class="txt ar ref">لا، في كافيه هنا كده جنب الدار، مع أحمد خطيبها، وزمانها جاي.</div></div>
+    <div class="row"><div class="who">Stock Whisper</div><div class="txt ar bad"><mark>لافكة فيه</mark> هنا كده جنب الدار مع أحمد خطبها <mark>وزمنها</mark> جاي</div></div>
+    <div class="row"><div class="who">Lahja</div><div><div class="txt ar good"><mark class="g">لا في كافيه</mark> هنا كده جنب الدار مع احمد خطبها <mark class="g">وزمانها</mark> جاي</div><div class="gloss" style="text-align:right">“No, there's a café right here by the house, with Ahmed, her fiancé — she'll be here any minute.”</div></div></div>
+  </div>
+
+  <div class="foot">Word error rate across all 13 dialect clips: stock 41.1% → Lahja 29.1%. Reproduce: <b style="color:var(--ink)">python3 bench/run_bench.py</b></div>
+</div>
+</body>
+</html>

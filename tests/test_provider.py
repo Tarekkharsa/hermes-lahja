@@ -14,8 +14,8 @@ def mods(lahja):
 
 def _install_fake_models(models, data_dir: Path):
     for m in (models.VAD_MODEL, models.MODELS[models.DEFAULT_MODEL]):
-        p = models.path_for(data_dir, m)
-        p.write_bytes(b"x")
+        models.models_dir(data_dir)
+        models.path_for(data_dir, m).write_bytes(b"x")
 
 
 def test_register(lahja, ctx):
@@ -35,7 +35,7 @@ def test_pipeline_filters_and_corrects(lahja, ctx, mods, monkeypatch):
     _install_fake_models(models, ctx.state.data_dir)
     seen = {}
 
-    def fake_routed(src, opts, other, min_probability=0.5):
+    def fake_routed(src, opts, other, min_probability=0.5, **kw):
         seen["opts"] = opts
         return engine.Routed(engine.Decoded("بدي روح على جي إلي تي بكرا ترجمة نانسي قنقر", "ar", 1.0), "ar", False)
 

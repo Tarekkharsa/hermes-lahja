@@ -108,9 +108,15 @@ correction once and it applies to every later voice note:
 /stt-fix remove 2
 ```
 
-Matching is on whole words, ignores diacritics, hamza seats and punctuation, and also matches the
-same letters spaced differently («جي إلي تي», «جيإلي تي», «جيإليتي»). It never matches inside a
-longer word and never guesses: a different spelling is a different correction.
+Matching is on whole words and ignores diacritics, hamza seats and punctuation (quotes and
+brackets around a replaced phrase are kept). A rule made of spelled-out letters (every word 1–3
+letters, like «جي إلي تي» or "G L T") also matches the same letters spaced differently («جيإلي تي»,
+«جيإليتي»); any other rule matches exactly its own words, so `/stt-fix مالك => Malek` never touches
+«ما لك». No fuzzy guessing: a different spelling is a different correction. Rules never chain, and
+up to 500 are kept.
+
+Corrections belong to the Hermes profile: they apply to every chat, and anyone allowed to talk to
+this Hermes (your gateway allowlist) can add one with `/stt-fix`. `/stt-fix list` shows them all.
 
 ## Languages: how Lahja decides
 
@@ -122,11 +128,18 @@ longer word and never guesses: a different spelling is a different correction.
   from the dialect model, 0.82 from stock large-v3). The dialect model then writes it phonetically —
   «ذاتس لايك يو غايز… آي دونت نو». Lahja recognises that text (English function words written in
   Arabic letters; spellings that are real Arabic words such as «إي», «شي», «تو», «كان», «وانا» are
-  never counted) and decodes the note again as English. Across ~900 words of real Arabic voice notes
-  this check fired zero times.
-* **Lahja never forces a non-Arabic language.** Whisper forced into a language the speaker is not
-  using *translates* into it, and Hermes' own default hint is `stt.language: en`. A hint of `ar` is
-  honoured; any other hint means "detect".
+  never counted, nor dialect words like Gulf «ذا/ذي» "this" or Maghrebi «وي» "oui") and, when
+  the note is *mostly* English (≥ 25 % of its words and ≥ 5 different markers), decodes it again
+  as English. Across ~900 words of real Arabic voice notes, including code-switched ones, the check
+  fired zero times; a real accented-English note scores 8 different markers.
+* **Hints never force a language.** Whisper forced into a language the speaker is not using
+  *translates* into it, and Hermes' own default hint is `stt.language: en`, so Lahja ignores
+  non-Arabic hints and detects per note. The only time Lahja decodes in a language Whisper didn't
+  detect is the mostly-English case above.
+* **`ar` turns routing off.** If `stt.language` or this plugin's `language` setting is `ar`, every
+  note is decoded as Arabic: no detection, no English check.
+* **Routing is best-effort.** If `other_languages_model` is invalid, missing or fails, Lahja logs a
+  warning and keeps the dialect model's text instead of failing the note.
 
 ## Settings
 
@@ -140,22 +153,30 @@ longer word and never guesses: a different spelling is a different correction.
 | `vad` | `true` | skip non-speech audio with Silero VAD |
 | `hallucination_filter` | `true` | strip subtitle-credit hallucinations at the start/end of a transcript |
 | `threads` | `4` | CPU threads for whisper.cpp |
+| `timeout` | `300` | seconds one note may take in total, queueing included (30–3600) |
+| `max_parallel` | `1` | notes decoded at the same time (1–4); each run loads its model into memory |
 
 ## Privacy and what this plugin does (disclosure)
 
 * **Audio** is converted and decoded locally in a private temporary directory that is deleted when
   the call returns. Nothing is uploaded, ever.
 * **Network:** only `hermes lahja setup`, which downloads the files listed in `lahja/models.py` from
-  `huggingface.co` over HTTPS. Each is pinned to an exact SHA-256; a mismatch deletes the download and
-  fails. Transcription itself makes no network calls.
-* **Subprocesses:** `ffmpeg` and `whisper-cli`, with a fixed argument list (no shell), a timeout, and
-  a minimal environment (`PATH`, `LANG`, `LC_ALL`, `TMPDIR`) — never Hermes' environment, so no API
-  key can reach them.
+  `huggingface.co` over HTTPS (redirected to its CDN, `*.cdn.hf.co` / `*.hf.co`). Each URL names an
+  exact repository commit, each file has a SHA-256 and a size cap; a mismatch deletes the download
+  and fails. The dialect model comes from a community ggml mirror (`JoaoZaokk/…-ggml`) of the
+  official weights — see below for how to verify it. Transcription itself makes no network calls.
+* **Subprocesses:** `ffmpeg` (allowed to read local files only: `-protocol_whitelist file,pipe`) and
+  `whisper-cli`, with a fixed argument list (no shell), one overall deadline per note, at most
+  `max_parallel` running at once, and a minimal environment (`PATH`, `LANG`, `LC_ALL`, `TMPDIR`,
+  `LD_LIBRARY_PATH`) — never Hermes' environment, so no API key can reach them.
 * **Files read:** the audio file Hermes hands to the provider, the model files in this plugin's data
   directory, and — only if you configure it — the `other_languages_model` file you point at.
 * **Files written:** model files and your corrections (the two phrases of each `/stt-fix`, nothing
   else), both in this plugin's profile-scoped data directory. No audio, no transcripts, no logs of
   what you said.
+* **Corrections are shared text substitution:** a `/stt-fix` rule rewrites matching words in every
+  later transcript of the profile, and any user your gateway lets talk to Hermes can add one (rules
+  with control or invisible characters are refused; each side ≤ 120 characters).
 * **No** telemetry, credentials, background processes, hooks or tools. It registers one STT provider
   (`lahja`), one slash command (`/stt-fix`) and one CLI command (`hermes lahja`).
 
@@ -181,7 +202,7 @@ proves the tokenizer files it borrows from the base model are identical to the f
   ones you use with `/stt-fix`.
 * **Numbers** are written as words («تلاتين فاصلة خمسة وأربعين»), not digits.
 * **Brand and medicine names** are sometimes misspelled — again, `/stt-fix`.
-* **Algerian** is worse than stock Whisper on the benchmark clip (0.87 vs 0.60), and Maghrebi
+* **Algerian** is worse than stock Whisper on the benchmark clip (0.87 vs 0.67), and Maghrebi
   dialects are the hardest for every model.
 * **Apple Silicon or Linux with whisper.cpp.** Untested on Windows.
 
@@ -189,7 +210,7 @@ proves the tokenizer files it borrows from the base model are identical to the f
 
 ```bash
 python3 -m pip install pytest
-python3 -m pytest tests                       # 68 tests, no Hermes checkout needed
+python3 -m pytest tests                       # 99 tests, no Hermes checkout needed
 LAHJA_TEST_MODELS=<dir with the .bin files> python3 -m pytest tests   # + a real whisper.cpp run
 hermes plugins validate ./lahja               # the catalog CI gate
 ```

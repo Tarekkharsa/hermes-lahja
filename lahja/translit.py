@@ -8,7 +8,13 @@ easy to recognise: it is dense with English function words spelled in Arabic let
 Only spellings that are NOT ordinary Arabic words are listed. Deliberately excluded because they
 are real Arabic: إي (yes), شي (thing), تو (just now), كان (was), ذات (self), وانت (and you),
 فور (immediately), اي (which/yes), ماي (water, Gulf), سو, يا, لايك (a "like", common slang),
-بات (became), سيد (mister), كانت (she was), وانا (and I).
+بات (became), سيد (mister), كانت (she was), وانا (and I), and dialect words: ذا / ذي / ذه (Gulf and
+classical "this"), وي (Maghrebi "oui"), نو, فري, هاز.
+
+A note is treated as English only when it is *mostly* English: at least 25% of its words are
+markers and they are at least 5 *different* markers (the strongest separator: a real accented-English
+voice note had 8; code-switched Arabic sentences have 0–2). A code-switched Arabic sentence with a few English words («بس ايتس فيري ايزي»)
+stays Arabic.
 """
 
 from __future__ import annotations
@@ -17,20 +23,17 @@ from .arabic import fold_token
 
 # Folded forms (see arabic.fold): أإآ→ا, ة→ه, ى→ي, no diacritics.
 MARKERS: frozenset[str] = frozenset({
-    "ذا", "ذي", "ذه",                  # the
     "اند",                              # and
     "يو", "يور",                        # you, your
     "ذاتس", "اتس", "ايتس",              # that's, it's
     "ذس", "ذيس",                        # this
     "ذن", "ثن",                         # then
-    "وي",                               # we
-    "از", "ايز", "واز",                  # is, was
+    "ايز", "واز",                        # is, was
     "دونت", "وونت", "ديدنت",              # don't, won't, didn't
-    "نو",                               # know / no
-    "فيري", "فري",                       # very
+    "فيري",                             # very
     "وات", "وت", "وير", "وين",           # what, where (وين excluded below: Levantine "where")
     "ويذ", "وذ",                        # with
-    "هاف", "هاڤ", "هاز",                 # have, has
+    "هاف", "هاڤ",                       # have
     "جست", "اباوت", "بيكوز", "بيكاز",     # just, about, because
     "ذاي", "ذير", "ذيم", "ذين",          # they, there, them, then
     "انثر", "اناذر", "اذر",              # another, other
@@ -41,8 +44,8 @@ MARKERS: frozenset[str] = frozenset({
 }) - {"وين"}  # «وين» is everyday Levantine for "where": never a marker
 
 MIN_TOKENS = 5
-MIN_DISTINCT = 3
-MIN_RATIO = 0.2
+MIN_DISTINCT = 5
+MIN_RATIO = 0.25
 
 
 def english_score(text: str) -> tuple[float, int]:

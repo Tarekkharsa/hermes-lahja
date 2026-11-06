@@ -9,10 +9,7 @@ description: >-
   audio and no transcripts.
 author: Tarekkharsa
 requires_hermes: ">=0.22.0"
-provides_transcription_providers:
-  - lahja
-provides_commands:
-  - stt-fix
+license: Apache-2.0
 config_schema:
   stt_model:
     type: str
@@ -38,3 +35,11 @@ config_schema:
     type: int
     default: 4
     description: "CPU threads for whisper.cpp (GPU/Metal is used automatically when available)."
+  timeout:
+    type: int
+    default: 300
+    description: "Seconds one voice note may take in total, queueing included (30-3600)."
+  max_parallel:
+    type: int
+    default: 1
+    description: "Voice notes decoded at the same time (1-4); others wait. Each run loads its model into memory."

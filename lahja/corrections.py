@@ -1,14 +1,22 @@
 """Corrections the user teaches once: «جي إلي تي» => JLT.
 
 Stored in the plugin's own profile-scoped state (``ctx.state``), as the two strings only — never
-audio, never the transcript they came from. Applied after every transcription on whole-token
-boundaries of the folded text, so «جي إلي تي» also matches «جي إلي تي،» but never the inside of a
-longer word.
+audio, never the transcript they came from. Applied after every transcription:
+
+* on whole words of the folded text (diacritics, hamza seats, punctuation ignored);
+* a rule made of *spelled-out letters* («جي إلي تي», "G L T": every word 1–3 letters) also matches
+  the same letters spaced differently («جيإلي تي», «جيإليتي»), because Whisper splits spelled
+  letters differently from clip to clip. Any other rule matches exactly its own words, so «مالك»
+  never swallows «ما لك»;
+* each word is replaced at most once: rules never chain (A→B then B→C does not turn A into C);
+* quotes and brackets around the replaced words are kept.
 """
 
 from __future__ import annotations
 
 import re
+import threading
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
 
@@ -18,6 +26,13 @@ STATE_KEY = "corrections"
 MAX_CORRECTIONS = 500
 MAX_PHRASE_CHARS = 120
 _SEPARATORS = ("=>", "->", "→", "⬅", "<-")
+_SPELLED_MAX_LETTERS = 3
+_JOINERS = (chr(0x200C), chr(0x200D))  # ZWNJ/ZWJ are legitimate inside Persian/Arabic words
+_LOCK = threading.Lock()  # read-modify-write of the list (Hermes state has no atomic update)
+
+
+class CorrectionLimit(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -29,6 +44,18 @@ class Correction:
     def key(self) -> tuple[str, ...]:
         return tuple(t for t in (fold_token(x) for x in self.wrong.split()) if t)
 
+    @property
+    def spelled(self) -> bool:
+        """Spelled-out letters/initialisms: every word is 1–3 letters (جي إلي تي, G L T, JLT)."""
+        return all(len(t) <= _SPELLED_MAX_LETTERS for t in self.key)
+
+
+def _clean_phrase(s: str) -> str:
+    s = s.strip().strip("\"'«»")
+    if any(unicodedata.category(ch) in ("Cc", "Cf") and ch not in _JOINERS for ch in s):
+        return ""  # no control / invisible characters: a rule may not smuggle hidden text
+    return " ".join(s.split())
+
 
 def parse_rule(raw: str) -> Optional[Correction]:
     """Parse ``wrong => right`` (also ``->`` / ``→``). Returns None when malformed."""
@@ -38,7 +65,7 @@ def parse_rule(raw: str) -> Optional[Correction]:
             wrong, _, right = raw.partition(sep)
             if sep in ("⬅", "<-"):
                 wrong, right = right, wrong
-            wrong, right = wrong.strip().strip("\"'«»"), right.strip().strip("\"'«»")
+            wrong, right = _clean_phrase(wrong), _clean_phrase(right)
             if not wrong or not right or len(wrong) > MAX_PHRASE_CHARS or len(right) > MAX_PHRASE_CHARS:
                 return None
             c = Correction(wrong, right)
@@ -58,57 +85,79 @@ def load(state: Any) -> list[Correction]:
 
 
 def save(state: Any, items: Iterable[Correction]) -> None:
-    state.set(STATE_KEY, [{"wrong": c.wrong, "right": c.right} for c in items][:MAX_CORRECTIONS])
+    state.set(STATE_KEY, [{"wrong": c.wrong, "right": c.right} for c in items])
 
 
 def add(state: Any, c: Correction) -> list[Correction]:
-    items = [x for x in load(state) if x.key != c.key]
-    items.append(c)
-    save(state, items)
-    return items
+    """Add or replace ``c`` (same folded key replaces). Raises CorrectionLimit at the cap."""
+    with _LOCK:
+        current = load(state)
+        items = [x for x in current if x.key != c.key]
+        if len(items) >= MAX_CORRECTIONS:
+            raise CorrectionLimit(
+                f"Lahja keeps at most {MAX_CORRECTIONS} corrections; remove one first (/stt-fix list).")
+        items.append(c)
+        save(state, items)
+        return items
 
 
 def remove(state: Any, index: int) -> Optional[Correction]:
-    items = load(state)
-    if not 1 <= index <= len(items):
-        return None
-    gone = items.pop(index - 1)
-    save(state, items)
-    return gone
+    with _LOCK:
+        items = load(state)
+        if not 1 <= index <= len(items):
+            return None
+        gone = items.pop(index - 1)
+        save(state, items)
+        return gone
 
 
-_TRAIL_PUNCT_RE = re.compile(r"([،؛؟.,!?:]+)$")
+_LEAD_RE = re.compile(r"^([\"'«(\[{]+)")
+_TRAIL_RE = re.compile(r"([\"'»)\]}،؛؟.,!?:]+)$")
 
 
 def apply(text: str, items: list[Correction]) -> tuple[str, int]:
-    """Replace every taught phrase; longest phrases first. Returns ``(text, replacements)``.
+    """Replace every taught phrase. Returns ``(text, replacements)``.
 
-    Matching compares the folded tokens *joined without spaces*, over windows from one token to
-    one more than the taught phrase, because Whisper splits spelled-out letters differently from
-    one clip to the next («جي إل تي», «جي إلتي», «جي إلي تي»): teaching one covers its re-spacings.
+    One left-to-right pass with dictionary lookups (500 rules over a long note stays fast). At each
+    word the widest matching window wins, so a longer phrase beats a shorter one starting at the
+    same word; replaced words are never looked at again, so rules cannot chain.
     """
     if not text or not items:
         return text, 0
+    exact: dict[tuple[str, ...], Correction] = {}
+    spelled: dict[str, Correction] = {}
+    for c in items:
+        exact[c.key] = c
+        if c.spelled:
+            spelled["".join(c.key)] = c
+    widest = max(len(c.key) for c in items) + 1
     tokens = text.split()
+    folds = [fold_token(t) for t in tokens]
+    out: list[str] = []
     count = 0
-    for c in sorted(items, key=lambda x: len("".join(x.key)), reverse=True):
-        target = "".join(c.key)
-        sizes = range(len(c.key) + 1, 0, -1)  # widest first: n+1 … 1 tokens
-        i, out = 0, []
-        while i < len(tokens):
-            hit = 0
-            for n in sizes:
-                window = tokens[i:i + n]
-                if len(window) == n and "".join(fold_token(t) for t in window) == target:
-                    hit = n
-                    break
-            if hit:
-                m = _TRAIL_PUNCT_RE.search(tokens[i + hit - 1])
-                out.append(c.right + (m.group(1) if m else ""))
-                i += hit
-                count += 1
-            else:
-                out.append(tokens[i])
-                i += 1
-        tokens = out
-    return clean_spacing(" ".join(tokens)), count
+    i = 0
+    while i < len(tokens):
+        hit: Optional[tuple[Correction, int]] = None
+        for size in range(min(widest, len(tokens) - i), 0, -1):
+            window = folds[i:i + size]
+            if not all(window):
+                continue
+            c = exact.get(tuple(window))
+            if c is None:
+                c = spelled.get("".join(window))
+                if c is not None and size > len(c.key) + 1:
+                    c = None
+            if c is not None:
+                hit = (c, size)
+                break
+        if hit is None:
+            out.append(tokens[i])
+            i += 1
+            continue
+        c, size = hit
+        lead = _LEAD_RE.search(tokens[i])
+        trail = _TRAIL_RE.search(tokens[i + size - 1])
+        out.append((lead.group(1) if lead else "") + c.right + (trail.group(1) if trail else ""))
+        i += size
+        count += 1
+    return clean_spacing(" ".join(out)), count

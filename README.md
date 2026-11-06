@@ -1,10 +1,9 @@
 # Lahja (لهجة) — Arabic dialect speech-to-text for Hermes
 
-![Lahja: stock Whisper writes «ترجمة نانسي قنقر» on silence and rewrites dialect as formal Arabic; Lahja returns nothing on silence, keeps the dialect, and cuts word errors from 43% to 29% across 13 dialects](docs/banner.png)
+![Lahja keeps your dialect («بس مع هيك», not «ولكن مع ذلك») and your meaning, and cuts word errors from 41% to 29% across 13 Arabic dialects versus stock Whisper with the same settings](docs/banner.png)
 
 Send Hermes a voice note in Levantine, Gulf, Egyptian, Iraqi or Maghrebi Arabic and get back **what you
-actually said**: in your dialect, not rewritten as formal Arabic, not translated, and never the
-Whisper classic «ترجمة نانسي قنقر» ("Translation by Nancy Qunqar") when the audio is silent.
+actually said**: in your dialect, not rewritten as formal Arabic, and not translated.
 
 Fully local. No API keys. Stores no audio and no transcripts.
 
@@ -21,18 +20,22 @@ Stock Whisper is weak on spoken Arabic, and it fails in ways an assistant cannot
 
 | Problem | Stock Whisper | Lahja |
 |---|---|---|
-| **Silence / noise** (a pocket recording, a pause) | «ترجمة نانسي قنقر» on 4 of 4 non-speech clips | empty on 4 of 4 |
 | **Dialect** | rewrites it as formal Arabic: «بس مع هيك» → «ولكن مع ذلك», «ما بعرف» → «لا اعرف» | keeps it |
 | **Meaning** | on a real Levantine voice note, «مالها طعمة» (*has no taste*) became «لها طعم ومعنى» (*has taste and meaning*) | correct |
-| **Word error rate**, 13 dialects | 42.9 % | **29.1 %** |
+| **Word error rate**, 13 dialects, same VAD and settings | 41.1 % | **29.1 %** |
 | **English said with an Arabic accent** | often detected as Arabic and *translated* into Arabic | caught and transcribed as English |
+| **Silence / noise** | without voice detection: «ترجمة نانسي قنقر» ("Translation by Nancy Qunqar") on 4 of 4 non-speech clips | VAD on by default, plus a filter for subtitle credits that slip through: empty on 4 of 4 |
+
+The dialect and meaning examples come from stock large-v3 (language `auto`, with VAD) on real
+voice notes. VAD alone also fixes the silence case for stock Whisper, and Hermes' built-in
+faster-whisper provider already uses it; Lahja simply never runs without it.
 
 ### Numbers
 
 `bench/run_bench.py` reproduces everything below with one command. Test audio: the 13 held-out
 clips (one per dialect, 82 s) published on the dialect model's card, scored with diacritics and
-punctuation removed and hamza / alef / ya / ta-marbuta variants folded. Same q5_0 quantization and the same decoding settings
-for both models (whisper.cpp 1.9.4, Apple M4).
+punctuation removed and hamza / alef / ya / ta-marbuta variants folded. Both models: q5_0,
+whisper.cpp 1.9.4, language `ar`, the same Silero VAD, Apple M4.
 
 | Dialect | Stock large-v3-turbo | Lahja |
 |---|---|---|
@@ -40,20 +43,21 @@ for both models (whisper.cpp 1.9.4, Apple M4).
 | Iraqi | 0.26 | **0.05** |
 | Yemeni | 0.56 | **0.11** |
 | Palestinian | 1.00 | **0.40** |
-| Sudanese | 0.50 | **0.25** |
+| Lebanese | 0.33 | **0.17** |
 | Tunisian | 0.42 | **0.25** |
-| Moroccan | 0.79 | **0.50** |
-| Libyan | 0.36 | **0.29** |
-| Lebanese | 0.17 | 0.17 |
+| Libyan | 0.43 | **0.29** |
+| Moroccan | 0.62 | **0.50** |
+| Sudanese | 0.31 | **0.25** |
 | Saudi / Gulf | 0.30 | 0.30 |
 | Bahraini | 0.10 | 0.10 |
 | Syrian | **0.18** | 0.23 |
-| Algerian | **0.60** | 0.87 |
-| **All (word-weighted)** | **0.429** | **0.291** |
+| Algerian | **0.67** | 0.87 |
+| **All (word-weighted)** | **0.411** | **0.291** |
 
-13 clips is a small sample. The model's own card reports WER 0.332 on its 2,600-clip balanced test
-split (Gulf 0.17 … Tunisian 0.54). Speed is the same as stock turbo: a typical 10–40 s voice note
-transcribes in 2–4 s on an M4, and silence returns in under a second.
+Stock without VAD (whisper.cpp's default) scores 0.429. 13 clips is a small sample; the model's own
+card reports WER 0.332 on its 2,600-clip balanced test split (Gulf 0.17 … Tunisian 0.54). Speed is
+the same as stock turbo: a typical 10–40 s voice note transcribes in 2–4 s on an M4, and silence
+returns in under a second.
 
 ## Install
 

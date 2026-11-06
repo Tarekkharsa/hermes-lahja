@@ -7,8 +7,9 @@ Needs whisper-cli and ffmpeg on PATH. Downloads the 13 held-out dialect clips pu
 card (oddadmix/whisper-large-v3-turbo-arabic-dialectal-v2, pinned revision) into bench/audio/,
 generates 4 non-speech clips (digital silence, pink/brown/white noise) with ffmpeg, and prints:
 
-  1. word error rate per dialect, stock Whisper vs the dialect model (with Lahja's VAD)
-  2. what each model writes for audio that contains no speech
+  1. word error rate per dialect: stock Whisper with the same Silero VAD Lahja uses ("stock"),
+     stock without VAD ("stock_raw", whisper.cpp's default), and Lahja
+  2. what each writes for audio that contains no speech
   3. decoding speed
 """
 
@@ -68,7 +69,7 @@ def main() -> None:
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", src, "-t", "10", str(dst)],
                            check=True)
 
-    systems = {"stock": (a.stock, None), "lahja": (a.dialect, a.vad)}
+    systems = {"stock_raw": (a.stock, None), "stock": (a.stock, a.vad), "lahja": (a.dialect, a.vad)}
     res: dict = {"wer": {}, "per_dialect": {}, "non_speech": {}, "seconds": {}}
     audio_seconds = 0.0
     for sysname, (model, vad) in systems.items():
@@ -94,17 +95,18 @@ def main() -> None:
 
     a.json.parent.mkdir(exist_ok=True)
     a.json.write_text(json.dumps(res, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"WER (13 dialects, {res['audio_seconds']}s of audio): "
-          f"stock {res['wer']['stock']:.1%}  lahja {res['wer']['lahja']:.1%}")
-    print("dialect  stock  lahja")
+    print(f"WER (13 dialects, {res['audio_seconds']}s of audio): stock without VAD {res['wer']['stock_raw']:.1%}, "
+          f"stock with VAD {res['wer']['stock']:.1%}, lahja {res['wer']['lahja']:.1%}")
+    print("dialect  stock_raw  stock  lahja")
     for _, d, _ in refs:
-        print(f"{d:7s} {res['per_dialect']['stock'][d]:6.2f} {res['per_dialect']['lahja'][d]:6.2f}")
+        print(f"{d:7s} {res['per_dialect']['stock_raw'][d]:9.2f} {res['per_dialect']['stock'][d]:6.2f} "
+              f"{res['per_dialect']['lahja'][d]:6.2f}")
     print("non-speech audio:")
     for n in NOISE:
-        print(f"  {n:12s} stock: {res['non_speech']['stock'][n] or '(empty)'!s:24s} "
-              f"lahja: {res['non_speech']['lahja'][n] or '(empty)'}")
-    print(f"decode time for all 13 clips (incl. model load per clip): "
-          f"stock {res['seconds']['stock']}s, lahja {res['seconds']['lahja']}s")
+        row = "  ".join(f"{k}: {res['non_speech'][k][n] or '(empty)'}" for k in systems)
+        print(f"  {n:12s} {row}")
+    print("decode time for all 13 clips (incl. model load per clip): "
+          + ", ".join(f"{k} {res['seconds'][k]}s" for k in systems))
 
 
 if __name__ == "__main__":

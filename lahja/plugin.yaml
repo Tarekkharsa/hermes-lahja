@@ -1,0 +1,40 @@
+name: lahja
+version: "0.1.0"
+description: >-
+  Arabic dialect speech-to-text for Hermes, fully local: a dialect fine-tuned
+  Whisper on whisper.cpp (Metal on Apple Silicon) that keeps your dialect instead
+  of rewriting it as formal Arabic, Silero VAD so silence never turns into
+  «ترجمة نانسي قنقر», per-note language routing (English goes to stock Whisper,
+  never translated), and corrections you teach once with /stt-fix. Stores no
+  audio and no transcripts.
+author: Tarekkharsa
+requires_hermes: ">=0.22.0"
+provides_transcription_providers:
+  - lahja
+provides_commands:
+  - stt-fix
+config_schema:
+  stt_model:
+    type: str
+    default: turbo-dialectal-v2-q5
+    description: "Model id from `hermes lahja models` (downloaded once with `hermes lahja setup`)."
+  language:
+    type: str
+    default: auto
+    description: "auto: detect per voice note (Arabic → dialect model, other languages → other_languages_model). ar: always Arabic. Never set another language: Whisper translates when forced into a language the speaker is not using, so Lahja ignores non-Arabic hints (including stt.language: en)."
+  other_languages_model:
+    type: str
+    default: ""
+    description: "Model for non-Arabic voice notes: a model id (turbo-stock-q5, via `hermes lahja setup --model turbo-stock-q5`) or an absolute path to a ggml .bin you already have. Empty: the dialect model handles them too."
+  vad:
+    type: bool
+    default: true
+    description: "Skip non-speech audio with Silero VAD (prevents hallucinated subtitle credits on silence)."
+  hallucination_filter:
+    type: bool
+    default: true
+    description: "Remove known Whisper Arabic hallucinations (subtitle/translation credits, 'subscribe to the channel')."
+  threads:
+    type: int
+    default: 4
+    description: "CPU threads for whisper.cpp (GPU/Metal is used automatically when available)."

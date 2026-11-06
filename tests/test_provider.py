@@ -99,7 +99,15 @@ def test_subprocess_env_is_minimal(mods, monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-secret")
     env = engine._env()
     assert "OPENROUTER_API_KEY" not in env
-    assert set(env) <= {"PATH", "LANG", "LC_ALL", "TMPDIR"}
+    assert set(env) <= {"PATH", "LANG", "LC_ALL", "TMPDIR", "LD_LIBRARY_PATH"}
+
+
+def test_subprocess_env_allowlist_on_linux_runners(mods, monkeypatch):
+    engine, _ = mods
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/opt/cuda/lib")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "nope")
+    env = engine._env()
+    assert env["LD_LIBRARY_PATH"] == "/opt/cuda/lib" and "AWS_SECRET_ACCESS_KEY" not in env
 
 
 def test_stt_fix_command(lahja, ctx):

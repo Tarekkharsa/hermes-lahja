@@ -57,10 +57,18 @@ transcribes in 2–4 s on an M4, and silence returns in under a second.
 
 ```bash
 brew install whisper-cpp ffmpeg              # whisper-cli (Metal) and ffmpeg
-hermes plugins install lahja                 # or: hermes plugins install Tarekkharsa/hermes-lahja
+hermes plugins install lahja --enable        # from the Hermes plugin catalog
 hermes lahja setup                           # downloads the model (574 MB) + VAD (1 MB), SHA-256 verified
 hermes config set stt.provider lahja
 hermes lahja status                          # everything should say installed/found
+```
+
+Before the catalog entry is merged, install from this repo instead (the plugin is the `lahja/`
+folder; copying it keeps the plugin key `lahja` that the commands below use):
+
+```bash
+git clone https://github.com/Tarekkharsa/hermes-lahja && cp -R hermes-lahja/lahja ~/.hermes/plugins/lahja
+hermes plugins enable lahja
 ```
 
 Optional, recommended if you also send English (or any non-Arabic) voice notes: point Lahja at a

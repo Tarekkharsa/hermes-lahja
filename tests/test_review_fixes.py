@@ -246,3 +246,10 @@ def test_ffmpeg_protocol_whitelist(mods, monkeypatch, tmp_path):
         engine.to_wav("/a.ogg", str(tmp_path))
     i = seen["argv"].index("-protocol_whitelist")
     assert seen["argv"][i + 1] == "file,pipe" and i < seen["argv"].index("-i")
+
+
+# 10. accented English whose markers are only ~24% of the words (synthetic Arabic-voice clip)
+def test_translit_low_ratio_english(mods):
+    *_, translit = mods
+    text = "ذن وي سنت ذات ذات تو ذات لين، أند ذي ساد إتس فاين، سو آي ثينك وير دون فور تو داي."
+    assert translit.looks_like_transliterated_english(text)

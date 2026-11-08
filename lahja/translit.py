@@ -11,7 +11,7 @@ are real Arabic: إي (yes), شي (thing), تو (just now), كان (was), ذات
 بات (became), سيد (mister), كانت (she was), وانا (and I), and dialect words: ذا / ذي / ذه (Gulf and
 classical "this"), وي (Maghrebi "oui"), نو, فري, هاز.
 
-A note is treated as English only when it is *mostly* English: at least 25% of its words are
+A note is treated as English only when it is *mostly* English: at least 20% of its words are
 markers and they are at least 5 *different* markers (the strongest separator: a real accented-English
 voice note had 8; code-switched Arabic sentences have 0–2). A code-switched Arabic sentence with a few English words («بس ايتس فيري ايزي»)
 stays Arabic.
@@ -45,7 +45,7 @@ MARKERS: frozenset[str] = frozenset({
 
 MIN_TOKENS = 5
 MIN_DISTINCT = 5
-MIN_RATIO = 0.25
+MIN_RATIO = 0.20  # 0.25 missed a 21-word English note with 5 distinct markers (24%)
 
 
 def english_score(text: str) -> tuple[float, int]:

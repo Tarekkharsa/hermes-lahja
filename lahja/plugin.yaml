@@ -1,5 +1,5 @@
 name: lahja
-version: "0.1.0"
+version: "0.1.1"
 description: >-
   Arabic dialect speech-to-text for Hermes, fully local: a dialect fine-tuned
   Whisper on whisper.cpp (Metal on Apple Silicon) that keeps your dialect instead

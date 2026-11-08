@@ -69,8 +69,8 @@ hermes config set stt.provider lahja
 hermes lahja status                          # everything should say installed/found
 ```
 
-Before the catalog entry is merged, install from this repo instead (the plugin is the `lahja/`
-folder; copying it keeps the plugin key `lahja` that the commands below use):
+To install straight from this repo instead (the plugin is the `lahja/` folder; copying it keeps
+the plugin key `lahja` that the commands below use):
 
 ```bash
 git clone https://github.com/Tarekkharsa/hermes-lahja && cp -R hermes-lahja/lahja ~/.hermes/plugins/lahja
